@@ -687,38 +687,44 @@ class _CachedDataSource(FileDataSource):
                cache_dir: str,
                split: str,
                file_shuffle_buffer_size: Optional[int] = None):
+    splits = split.split(" ")
+    split_info_dict = {}
+    stats_dict = {}
+    for split in splits:
 
-    with tf.io.gfile.GFile(utils.get_cached_info_path(cache_dir, split)) as f:
-      split_info = json.load(f)
-      features = split_info["features"]
+      with tf.io.gfile.GFile(utils.get_cached_info_path(cache_dir, split)) as f:
+        split_info = json.load(f)
+        features = split_info["features"]
+        split_info_dict[split] = split_info
 
-    with tf.io.gfile.GFile(utils.get_cached_stats_path(cache_dir, split)) as f:
-      stats = json.load(f)
+      with tf.io.gfile.GFile(utils.get_cached_stats_path(cache_dir, split)) as f:
+        stats = json.load(f)
+        stats_dict[split]=stats
 
-    version_when_cached = version.Version(
-        split_info.get("seqio_version", "0.pre"))
-    version_with_true_dtypes = version.Version("0.0.0")
-    if version_when_cached < version_with_true_dtypes:
-      # Assume that all int64 features are really int32.
-      for name, feat in features.items():
-        if feat["dtype"] == "int64":
-          logging.info("Casting cached '%s' to int32.", name)
-          feat["dtype"] = "int32"
+      version_when_cached = version.Version(
+          split_info.get("seqio_version", "0.pre"))
+      version_with_true_dtypes = version.Version("0.0.0")
+      if version_when_cached < version_with_true_dtypes:
+        # Assume that all int64 features are really int32.
+        for name, feat in features.items():
+          if feat["dtype"] == "int64":
+            logging.info("Casting cached '%s' to int32.", name)
+            feat["dtype"] = "int32"
 
-    # Use `FixedLenSequenceFeature` for sequences with variable length.
-    def _feature_config(shape, dtype):
-      if dtype in ("int32", "bool"):
-        # int32 and bool are stored as int64 in the tf.train.Example protobuf.
-        # TODO(adarob): Support other conversions.
-        dtype = "int64"
-      if shape and shape[0] is None:
-        return tf.io.FixedLenSequenceFeature(
-            shape[1:], dtype, allow_missing=True)
-      return tf.io.FixedLenFeature(shape, dtype)
+      # Use `FixedLenSequenceFeature` for sequences with variable length.
+      def _feature_config(shape, dtype):
+        if dtype in ("int32", "bool"):
+          # int32 and bool are stored as int64 in the tf.train.Example protobuf.
+          # TODO(adarob): Support other conversions.
+          dtype = "int64"
+        if shape and shape[0] is None:
+          return tf.io.FixedLenSequenceFeature(
+              shape[1:], dtype, allow_missing=True)
+        return tf.io.FixedLenFeature(shape, dtype)
 
-    feature_description = {
-        feat: _feature_config(**desc) for feat, desc in features.items()
-    }
+      feature_description = {
+          feat: _feature_config(**desc) for feat, desc in features.items()
+      }
 
     def read_file_fn(filepattern):
       ds = tf.data.TFRecordDataset(filepattern)
@@ -738,13 +744,13 @@ class _CachedDataSource(FileDataSource):
     split_to_filepattern = {
         split:
             "%s-*-of-*%d" % (utils.get_cached_tfrecord_prefix(
-                cache_dir, split), split_info["num_shards"])
+                cache_dir, split), split_info_dict[split]["num_shards"]) for split in splits
     }
 
     super().__init__(
         read_file_fn=read_file_fn,
         split_to_filepattern=split_to_filepattern,
-        num_input_examples={split: stats["examples"]},
+        num_input_examples={split: stats_dict[split]["examples"] for split in splits},
         file_shuffle_buffer_size=file_shuffle_buffer_size)
 
 
