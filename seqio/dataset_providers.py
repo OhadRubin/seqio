@@ -752,7 +752,7 @@ class _CachedDataSource(FileDataSource):
         split_to_filepattern=split_to_filepattern,
         num_input_examples={split: stats_dict[split]["examples"] for split in splits},
         file_shuffle_buffer_size=file_shuffle_buffer_size)
-
+CachedDataSource = _CachedDataSource
 
 class CacheDatasetPlaceholder(object):
   """A placeholder to signal when in the pipeline offline caching will occur."""
